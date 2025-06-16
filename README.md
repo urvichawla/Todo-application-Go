@@ -50,6 +50,7 @@ The frontend will start on http://localhost:3000
 
 - Create new todos
 - Mark todos as complete/incomplete
+- Edit todos
 - Delete todos
 - Persistent storage (in-memory for now)
 - Clean and responsive UI 
