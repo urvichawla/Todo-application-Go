@@ -1,12 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
-	"github.com/gin-contrib/cors"
-	"github.com/gin-gonic/gin"
+	"github.com/gorilla/mux"
+	"github.com/rs/cors"
 )
 
 type Todo struct {
@@ -18,53 +20,65 @@ type Todo struct {
 var todos []Todo
 
 func main() {
-	router := gin.Default()
+	router := mux.NewRouter()
+
+	// API Routes
+	router.HandleFunc("/", homeHandler).Methods("GET")
+	router.HandleFunc("/api/todos", getTodos).Methods("GET")
+	router.HandleFunc("/api/todos", createTodo).Methods("POST")
+	router.HandleFunc("/api/todos/{id}", updateTodo).Methods("PUT")
+	router.HandleFunc("/api/todos/{id}", deleteTodo).Methods("DELETE")
 
 	// CORS middleware
-	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000"},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE"},
-		AllowHeaders:     []string{"Origin", "Content-Type"},
-		ExposeHeaders:    []string{"Content-Length"},
+	c := cors.New(cors.Options{
+		AllowedOrigins:   []string{"http://localhost:3000"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Content-Type", "Origin"},
 		AllowCredentials: true,
-	}))
-
-	// Root route
-	router.GET("/", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"message": "Welcome to Todo API",
-			"endpoints": []string{
-				"GET    /api/todos",
-				"POST   /api/todos",
-				"PUT    /api/todos/:id",
-				"DELETE /api/todos/:id",
-			},
-		})
 	})
 
-	// Routes
-	router.GET("/api/todos", getTodos)
-	router.POST("/api/todos", createTodo)
-	router.PUT("/api/todos/:id", updateTodo)
-	router.DELETE("/api/todos/:id", deleteTodo)
+	// Create server
+	srv := &http.Server{
+		Handler:      c.Handler(router),
+		Addr:         ":8081",
+		WriteTimeout: 15 * time.Second,
+		ReadTimeout:  15 * time.Second,
+	}
 
-	router.Run(":8080")
+	fmt.Println("Server is running on http://localhost:8081")
+	log.Fatal(srv.ListenAndServe())
 }
 
-func getTodos(c *gin.Context) {
-	c.JSON(http.StatusOK, todos)
+func homeHandler(w http.ResponseWriter, r *http.Request) {
+	response := map[string]interface{}{
+		"message": "Welcome to Todo API",
+		"endpoints": []string{
+			"GET    /api/todos",
+			"POST   /api/todos",
+			"PUT    /api/todos/:id",
+			"DELETE /api/todos/:id",
+		},
+	}
+	json.NewEncoder(w).Encode(response)
 }
 
-func createTodo(c *gin.Context) {
+func getTodos(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(todos)
+}
+
+func createTodo(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	var newTodo Todo
-	if err := c.BindJSON(&newTodo); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid todo data"})
+	if err := json.NewDecoder(r.Body).Decode(&newTodo); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	// Validate todo data
 	if newTodo.Title == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Title is required"})
+		http.Error(w, "Title is required", http.StatusBadRequest)
 		return
 	}
 
@@ -74,25 +88,30 @@ func createTodo(c *gin.Context) {
 	}
 
 	todos = append(todos, newTodo)
-	c.JSON(http.StatusCreated, newTodo)
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(newTodo)
 }
 
-func updateTodo(c *gin.Context) {
-	id := c.Param("id")
+func updateTodo(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Get ID from URL
+	vars := mux.Vars(r)
+	id := vars["id"]
 	if id == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Todo ID is required"})
+		http.Error(w, "Todo ID is required", http.StatusBadRequest)
 		return
 	}
 
 	var updatedTodo Todo
-	if err := c.BindJSON(&updatedTodo); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid todo data"})
+	if err := json.NewDecoder(r.Body).Decode(&updatedTodo); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	// Validate todo data
 	if updatedTodo.Title == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Title is required"})
+		http.Error(w, "Title is required", http.StatusBadRequest)
 		return
 	}
 
@@ -110,26 +129,31 @@ func updateTodo(c *gin.Context) {
 	}
 
 	if !found {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Todo not found"})
+		http.Error(w, "Todo not found", http.StatusNotFound)
 		return
 	}
 
-	c.JSON(http.StatusOK, updatedTodo)
+	json.NewEncoder(w).Encode(updatedTodo)
 }
 
-func deleteTodo(c *gin.Context) {
-	id := c.Param("id")
+func deleteTodo(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Get ID from URL
+	vars := mux.Vars(r)
+	id := vars["id"]
 	if id == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Todo ID is required"})
+		http.Error(w, "Todo ID is required", http.StatusBadRequest)
 		return
 	}
 
 	for i, todo := range todos {
 		if todo.ID == id {
 			todos = append(todos[:i], todos[i+1:]...)
-			c.JSON(http.StatusOK, gin.H{"message": "Todo deleted successfully"})
+			json.NewEncoder(w).Encode(map[string]string{"message": "Todo deleted successfully"})
 			return
 		}
 	}
-	c.JSON(http.StatusNotFound, gin.H{"error": "Todo not found"})
+
+	http.Error(w, "Todo not found", http.StatusNotFound)
 } 
