@@ -26,7 +26,7 @@ go mod tidy
 ```bash
 go run main.go
 ```
-The server will start on http://localhost:8080
+The server will start on http://localhost:8081
 
 ### Frontend
 
